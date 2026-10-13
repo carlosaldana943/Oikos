@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Base reset Claude Artifacts adds around every page -->
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<!-- Runs the app outside Claude: database, sign-in, CSV export -->
+<script src="firebase-config.js"></script>
+<script src="claude-shim.js"></script>
+</head>
+<body>
+<!-- ===== Build Board app (unchanged from the Claude artifact) ===== -->
+<title>Envision Build Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: field tool — sticky header + tabs (Houses / Next up / Subs); house detail is a full panel; edits and briefs happen in bottom sheets */
+:root{
+  --bg:#ECEFEE; --surface:#FFFFFF; --sunk:#F5F7F6; --ink:#192125; --muted:#5B676D; --line:#D3D9DA;
+  --accent:#1D5FA8; --accent-soft:#E2ECF8; --on-accent:#FFFFFF;
+  --ok:#2C7A4B; --ok-soft:#E1F1E7; --warn:#A66A12; --warn-soft:#FBEFD9; --bad:#BC3B26; --bad-soft:#FBE4DF;
+  --sched:#5B47A8; --sched-soft:#ECE8F8; --wa:#1F8A55;
+  --shadow:0 1px 2px rgba(20,30,35,.06),0 8px 24px rgba(20,30,35,.08);
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111517; --surface:#1A2023; --sunk:#151A1C; --ink:#E5EAEB; --muted:#94A0A5; --line:#2B3337;
+  --accent:#6EA5E6; --accent-soft:#1C2B3D; --on-accent:#0E1A27;
+  --ok:#5CBD84; --ok-soft:#173022; --warn:#E2AA4C; --warn-soft:#33270F; --bad:#EE7B64; --bad-soft:#3A1D17;
+  --sched:#A898EC; --sched-soft:#262040; --wa:#4CC285; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111517; --surface:#1A2023; --sunk:#151A1C; --ink:#E5EAEB; --muted:#94A0A5; --line:#2B3337;
+  --accent:#6EA5E6; --accent-soft:#1C2B3D; --on-accent:#0E1A27;
+  --ok:#5CBD84; --ok-soft:#173022; --warn:#E2AA4C; --warn-soft:#33270F; --bad:#EE7B64; --bad-soft:#3A1D17;
+  --sched:#A898EC; --sched-soft:#262040; --wa:#4CC285; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:860px;margin:0 auto;padding-inline:16px;padding-block:0 96px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:14px 8px;display:flex;flex-direction:column;gap:10px}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand h1{margin:0;font:700 26px/1 var(--f-display);letter-spacing:.01em;text-transform:uppercase}
+.brand h1 span{color:var(--accent)}
+.tabs{display:flex;gap:4px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:3px}
+.tabs button{flex:1;border:0;background:none;padding:8px 6px;border-radius:7px;font:600 15px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tabs button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.tabs .ct{font-family:var(--f-mono);font-size:11px;margin-left:4px;color:var(--bad)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 14px;font-weight:600;font-size:14px;white-space:nowrap;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.wa{background:var(--wa);border-color:var(--wa);color:#fff}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.small{padding:6px 10px;font-size:13px;border-radius:7px}
+.btn:disabled,.btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
+
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-block:6px 14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:left;min-width:0}
+.kpi b{display:block;font:700 28px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.kpi small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.kpi.bad b{color:var(--bad)} .kpi.warn b{color:var(--warn)}
+.kpi[aria-pressed="true"]{border-color:var(--ink)}
+
+.label{font:600 13px/1 var(--f-display);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.pipe{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-block:8px 16px}
+.pipe button{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:8px 10px;text-align:left;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pipe button .n{font:700 22px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.pipe button .t{font-size:11.5px;color:var(--muted);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pipe button .bar{height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.pipe button .bar i{display:block;height:100%;background:var(--accent)}
+.pipe button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+
+.tools{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.search{flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 12px}
+select.sel{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 10px;max-width:100%}
+
+.list{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;width:100%}
+.row:first-child{border-top:0}
+.row:hover{background:var(--sunk)}
+.row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.row .meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;color:var(--muted);font-size:13px;min-width:0}
+.row .next{grid-column:1/-1;font-size:13.5px;min-width:0}
+.row .pct{font:700 18px/1 var(--f-display);font-variant-numeric:tabular-nums;align-self:center}
+.prog{grid-column:1/-1;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent)}
+
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap}
+.chip.phase{background:var(--accent-soft);color:var(--accent)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.sched{background:var(--sched-soft);color:var(--sched)}
+.chip.plain{background:var(--sunk);color:var(--muted);border:1px solid var(--line)}
+.chip.sub{background:var(--sunk);color:var(--ink);border:1px solid var(--line);font-weight:500}
+.code{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);border-radius:5px;padding:0 5px;color:var(--muted);background:var(--sunk)}
+.type{font:600 11px/1 var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+.section{margin-block:18px 8px;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.section h2{margin:0;font:700 19px/1.1 var(--f-display);letter-spacing:.04em;text-transform:uppercase}
+.section p{margin:0;color:var(--muted);font-size:12.5px}
+.qrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.qrow:first-child{border-top:0}
+.qrow .h{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;background:none;border:0;padding:0;text-align:left}
+.qrow .s{font-size:13px;color:var(--muted);min-width:0;grid-column:1}
+.qrow .acts{grid-row:1/span 2;grid-column:2;display:flex;gap:6px}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:28px 20px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+.empty h3{margin:0;font:700 22px/1.1 var(--f-display);text-transform:uppercase;letter-spacing:.03em}
+.empty p{margin:0;color:var(--muted);max-width:46ch}
+.muted{color:var(--muted)}
+
+/* detail */
+.dhead{display:flex;flex-direction:column;gap:10px;margin-block:6px 14px}
+.back{border:0;background:none;padding:4px 0;color:var(--accent);font-weight:600;align-self:flex-start}
+.dtitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.dtitle h2{margin:0;font:700 28px/1.05 var(--f-display);text-wrap:balance}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.fact{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0}
+.fact small{display:block;color:var(--muted);font-size:11.5px}
+.fact div{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fact.wide{grid-column:span 2}
+.nextcard{background:var(--accent-soft);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.nextcard b{display:block;font-size:16px}
+details.ph{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+details.ph summary{list-style:none;display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer}
+details.ph summary::-webkit-details-marker{display:none}
+details.ph summary .pn{font:700 17px/1 var(--f-display);text-transform:uppercase;letter-spacing:.03em;flex:1;min-width:0}
+details.ph summary .pc{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+details.ph summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .15s}
+details.ph[open] summary::after{transform:rotate(-135deg)}
+.step{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 14px;border-top:1px solid var(--line)}
+.step.isnext{background:var(--accent-soft)}
+.dot{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;padding:0}
+.dot svg{width:14px;height:14px}
+.dot.done{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.dot.prog{border-color:var(--warn);background:linear-gradient(90deg,var(--warn) 50%,transparent 50%)}
+.dot.sched{border-color:var(--sched);border-style:dashed}
+.dot.prob{border-color:var(--bad);background:var(--bad);color:var(--surface)}
+.step .sn{border:0;background:none;padding:0;text-align:left;min-width:0;display:flex;flex-direction:column;gap:3px}
+.step .sn span{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.step .sn .nt{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.step .sd{font-size:12px;color:var(--muted);text-align:right}
+.step.done .stx{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line)}
+
+/* subs */
+.trades{display:flex;flex-wrap:wrap;gap:4px}
+.contact{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.contact small{display:block;color:var(--muted);font-size:11.5px}
+.contact .v{font-weight:600;user-select:all;overflow-wrap:anywhere}
+.contact .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 10px;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--sunk)}
+.checks label{display:flex;gap:6px;align-items:center;font-size:13.5px;color:var(--ink);font-weight:400}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(10,15,18,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:92%;overflow:auto;border-radius:16px 16px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
+@media (min-width:640px){.scrim{align-items:center}.sheet{border-radius:16px}}
+.sheet h3{margin:0;font:700 22px/1.1 var(--f-display);text-transform:uppercase;letter-spacing:.02em}
+.sheet .sub{color:var(--muted);font-size:13px;margin-top:-8px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field>label,.field>.flabel{font-size:12.5px;font-weight:600;color:var(--muted)}
+.field input:not([type=checkbox]),.field select,.field textarea{border:1px solid var(--line);background:var(--sunk);border-radius:8px;padding:9px 11px;width:100%}
+.field textarea{min-height:76px;resize:vertical}
+.field textarea.msg{min-height:220px;font-size:14px;line-height:1.45}
+.inline{display:flex;gap:8px;align-items:center;font-size:13.5px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.seg{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.seg.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.seg button{border:1px solid var(--line);background:var(--sunk);border-radius:8px;padding:8px 2px;font-size:12.5px;font-weight:600}
+.seg button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.seg button[aria-pressed="true"][data-v="todo"]{border-color:var(--ink);background:var(--surface);color:var(--ink)}
+.seg button[aria-pressed="true"][data-v="sched"]{border-color:var(--sched);background:var(--sched-soft);color:var(--sched)}
+.seg button[aria-pressed="true"][data-v="prog"]{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.seg button[aria-pressed="true"][data-v="done"]{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.seg button[aria-pressed="true"][data-v="prob"]{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.actions .spacer{flex:1}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+.hint.warn{color:var(--warn)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:40;max-width:calc(100% - 32px);text-align:center}
+.fab{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:10;border-radius:999px;padding:13px 20px;box-shadow:var(--shadow)}
+@media (max-width:520px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>Envision <span>Build Board</span></h1><button class="btn small" id="exportBtn" data-act="export" hidden>Export CSV</button></div>
+    <nav class="tabs" id="tabs">
+      <button data-act="tab" data-v="board" aria-pressed="true">Houses</button>
+      <button data-act="tab" data-v="next" aria-pressed="false">Next up</button>
+      <button data-act="tab" data-v="subs" aria-pressed="false">Subs</button>
+    </nav>
+  </header>
+  <main id="main">
+    <div class="empty"><h3>Loading houses</h3><p>Connecting to your project board.</p></div>
+  </main>
+</div>
+<button class="btn primary fab" id="fab" data-act="add" hidden>+ Add house</button>
+<div id="sheetRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+const PHASES=["Pre-construction","Site prep & utilities","Foundation & slab","Shell & roof","Rough-ins","Exterior","Interior finishes","Finals & closeout"];
+const TYPES={O:"Order",W:"Work",I:"Inspection",M:"Milestone"};
+const TRADES={sv:"Survey",ar:"Architect / engineer",ss:"Site services",sw:"Site work / grading",tf:"Trucking / fill",dc:"Driveway & culvert",wp:"Well & pump",se:"Septic",pl:"Plumbing",el:"Electrical",hv:"HVAC",co:"Concrete",pc:"Pest control",bl:"Block",fr:"Framing & trusses",rf:"Roofing",wd:"Windows & doors","in":"Insulation",st:"Stucco & lath",pa:"Painting",sg:"Soffit & gutters",dw:"Drywall",ti:"Tile",ca:"Carpentry & trim",ct:"Countertops",gl:"Glass & shower",gd:"Garage door",so:"Sod & irrigation",cl:"Cleaning",su:"Supplier",te:"Testing / inspection"};
+// trade for each step, in order (- = office task, any sub)
+const STEP_TRADES=("- sv - ar pl - - "+
+ "ss ss el dc dc dc sw tf sw sv wp "+
+ "pl pl co te el pc co pc co "+
+ "su su fr bl bl bl co su fr fr fr fr rf rf rf wd rf rf rf "+
+ "pl pl el el hv hv fr in in "+
+ "st st st st st pa sg sg sg sg "+
+ "dw dw in in cl ti ca pa ca ti ct pa gd gl "+
+ "wp pl pl el el hv hv ca ca se se se se sw co co co so so co - pa cl ss te - - - - -").trim().split(/\s+/);
+// [phase, type, name, code, duplexOnly]
+const RAW=[
+[0,"M","Land purchase"],[0,"W","Survey"],[0,"W","Model selection"],[0,"W","Architectural plans"],[0,"W","Attach plumbing license"],[0,"W","NOC / permit / FPL / LCEC submittal"],[0,"W","Pay permit"],
+[1,"O","Order porta potty"],[1,"W","Trench silt fence / dumpster / doc box"],[1,"I","Temp Overhead Power","310"],[1,"I","Stake Out / Evaluation (DOT)","750"],[1,"W","Install culvert"],[1,"I","Culvert (DOT)","751"],[1,"W","Driveway cut / rough grade"],[1,"W","Haul dirt"],[1,"W","Build pad"],[1,"W","Hub/tack building corners"],[1,"W","Well install"],
+[2,"W","Underground plumbing"],[2,"I","Rough Underground Plumbing","201"],[2,"W","Form"],[2,"W","Compaction"],[2,"W","Slab prep / underground electric"],[2,"W","Termite spray"],[2,"I","Floor & Foundation/Footing","101/102"],[2,"O","Bora spray request"],[2,"W","Slab concrete order / pour"],
+[3,"O","Order block & HETA 20s"],[3,"O","Cast Crete order"],[3,"O","Order trusses"],[3,"W","Block"],[3,"W","Bond beam prep / layout"],[3,"I","Tie Beam & Columns/Pile","103/104"],[3,"W","Concrete bond beam"],[3,"O","Order lumber / hardware"],[3,"W","Trusses / framing"],[3,"W","Fire wall",null,1],[3,"I","Duplex fire wall","903",1],[3,"I","Finish Trusses","130"],[3,"O","Order dry-in material"],[3,"W","Dry-in"],[3,"I","Roof Dry In","501"],[3,"W","Windows & exterior doors"],[3,"O","Order shingles"],[3,"W","Shingles"],[3,"I","Final Roof","503"],
+[4,"W","Tub set plumbing"],[4,"I","Tub Set","202"],[4,"W","Rough electric"],[4,"I","Rough Electric","304"],[4,"W","Rough HVAC"],[4,"I","Rough HVAC","401"],[4,"I","Rough Framing / Windows / Ext. Doors","105"],[4,"W","Insulation (walls)"],[4,"I","Insulation","107"],
+[5,"O","Order stucco material"],[5,"W","Lath"],[5,"I","Lath (first)","110"],[5,"W","Stucco"],[5,"W","Stucco grade"],[5,"W","Exterior paint"],[5,"W","J channel"],[5,"W","Soffit"],[5,"I","Soffit / Exterior","110"],[5,"W","Gutters"],
+[6,"O","Order drywall material"],[6,"W","Drywall"],[6,"W","Blown-in insulation (when applicable)"],[6,"I","Insulation if blow-in","107"],[6,"W","Rough clean"],[6,"O","Order tile"],[6,"O","Order doors"],[6,"W","Interior paint"],[6,"W","Rollout paper – trim / doors & cabinets"],[6,"W","Floor tile"],[6,"W","Countertops"],[6,"W","Paint trim & doors"],[6,"W","Garage door"],[6,"W","Glass shower"],
+[7,"W","Pump run-up"],[7,"W","Plumbing final"],[7,"I","Final Plumbing","204"],[7,"W","Electrical final / final accessories"],[7,"I","Final Electric","305"],[7,"W","HVAC final"],[7,"I","Final HVAC","402"],[7,"W","Appliances / door handles"],[7,"W","Final accessories"],[7,"W","Septic drainfield / tank"],[7,"I","Septic first inspection"],[7,"W","Septic alarm"],[7,"I","Septic final"],[7,"W","Final grade"],[7,"W","Driveway / form"],[7,"I","Form / Driveway (DOT)","752"],[7,"W","Pour driveway"],[7,"W","Sod / irrigation"],[7,"I","Drainage / Final Grade (Sod)","140"],[7,"I","Final DOT","754"],[7,"W","Punchout"],[7,"W","Final paint / touch-ups"],[7,"W","Final clean"],[7,"W","Trash receipt"],[7,"I","Blower door test"],[7,"I","Supervisor final structural review"],[7,"I","Final Structural / Building","106"],[7,"M","Certificate of Occupancy"],[7,"W","Homeowner walk-through"],[7,"M","Sold"]
+];
+const STEPS=RAW.map((r,i)=>({id:"s"+(i+1),n:i+1,p:r[0],t:r[1],name:r[2],code:r[3]||"",dx:!!r[4],tr:STEP_TRADES[i]==="-"?"":STEP_TRADES[i]}));
+const MODELS=["Perry","Ember","Model D","Duplex","Other"];
+const ST={todo:"Not started",sched:"Scheduled",prog:"In progress",done:"Done",prob:"Problem"};
+const IDLE_DAYS=7;
+
+let db=null, col=null, subCol=null, plansRef=null, user=null, myId=null, dl=null;
+let houses=[], subs=[], plans={}, loaded=false, loadErr=null;
+const ui={tab:"board",filter:null,q:"",sort:"attn",open:null,sheet:null,sq:"",strade:""};
+const writeQ={};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function today(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function days(a,b){if(!a)return null;const x=new Date(a+"T12:00:00"),y=new Date((b||today())+"T12:00:00");return Math.round((y-x)/864e5)}
+function fmtD(d){if(!d)return"";return new Date(d+"T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"})}
+function toast(msg){const r=$("#toastRoot");r.innerHTML=`<div class="toast" role="status">${esc(msg)}</div>`;clearTimeout(toast.t);toast.t=setTimeout(()=>r.innerHTML="",2400)}
+async function copy(text,btn){try{await navigator.clipboard.writeText(text);toast("Copied")}catch(_){toast("Select the text and copy it")}}
+
+function stepsFor(h){return STEPS.filter(s=>!s.dx||h.model==="Duplex")}
+function stOf(h,s){return (h.steps&&h.steps[s.id]&&h.steps[s.id].st)||"todo"}
+function so(h,s){return (h.steps&&h.steps[s.id])||{}}
+function calc(h){
+  const app=stepsFor(h); let done=0,next=null; const probs=[],sched=[];
+  for(const s of app){const st=stOf(h,s); if(st==="done")done++; else if(!next)next=s; if(st==="prob")probs.push(s); if(st==="sched")sched.push(s)}
+  const phase=next?next.p:8; const idle=days(h.last||h.start);
+  return {app,done,total:app.length,pct:Math.round(done/app.length*100),next,phase,probs,sched,idle,stale:next&&idle!==null&&idle>=IDLE_DAYS};
+}
+function label(s){return (s.code?s.code+" ":"")+s.name}
+function codeHtml(s){return s.code?`<span class="code">${esc(s.code)}</span>`:""}
+function subById(id){return subs.find(x=>x.id===id)}
+function subName(id){if(!id)return"";const x=subById(id);return x?(x.company||x.name):"Removed sub"}
+function planFor(h){return (h.plan||"").trim()||(plans[h.model]||"").trim()}
+
+/* ---------- writes (one at a time per document) ---------- */
+function queue(id,fn){writeQ[id]=(writeQ[id]||Promise.resolve()).then(fn).catch(e=>{toast(e&&e.code==="permission_denied"?"You have view-only access to this board":"Couldn't save. Check your connection and try again.")});return writeQ[id]}
+function setStep(h,s,patch){
+  const body=Object.assign({},so(h,s),patch); if(myId)body.by=myId;
+  return queue(h.id,()=>col.doc(h.id).update({steps:{[s.id]:body},last:today()}));
+}
+
+/* ---------- render ---------- */
+function render(){
+  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===ui.tab&&!ui.open)));
+  const probs=houses.reduce((a,h)=>a+calc(h).probs.length,0);
+  $("#tabs [data-v=next]").innerHTML="Next up"+(probs?`<span class="ct">${probs}</span>`:"");
+  const fab=$("#fab"); fab.hidden=!db||!!ui.open||!loaded;
+  fab.dataset.act=ui.tab==="subs"?"addsub":"add"; fab.textContent=ui.tab==="subs"?"+ Add sub":"+ Add house";
+  const m=$("#main");
+  if(loadErr){m.innerHTML=`<div class="empty"><h3>Board unavailable</h3><p>${esc(loadErr)}</p></div>`;return}
+  if(!loaded){m.innerHTML=`<div class="empty"><h3>Loading houses</h3><p>Connecting to your project board.</p></div>`;return}
+  if(ui.open){const h=houses.find(x=>x.id===ui.open); if(h){m.innerHTML=detailHtml(h);return} ui.open=null}
+  if(ui.tab==="subs"){m.innerHTML=subsHtml();renderSubList();return}
+  if(!houses.length){m.innerHTML=`<div class="empty"><h3>No houses yet</h3><p>Add each house once and the 109-step sequence comes with it. Pick the step a house is on now and everything before it is marked done.</p><div class="actions" style="justify-content:center"><button class="btn primary" data-act="add">Add a house</button><button class="btn" data-act="bulk">Add many at once</button></div></div>`;return}
+  m.innerHTML=ui.tab==="next"?nextHtml():boardHtml();
+  if(ui.tab==="board")renderList();
+}
+
+function boardHtml(){
+  const cs=houses.map(calc);
+  const active=cs.filter(c=>c.next).length, probs=cs.filter(c=>c.probs.length).length, stale=cs.filter(c=>c.stale).length, done=cs.length-active;
+  const counts=PHASES.map((_,i)=>cs.filter(c=>c.phase===i).length);
+  const max=Math.max(1,...counts);
+  const k=(v,lbl,f,cls)=>`<button class="kpi ${cls||""}" data-act="filter" data-v="${f}" aria-pressed="${ui.filter===f}"><b>${v}</b><small>${lbl}</small></button>`;
+  return `<div class="kpis">${k(active,"Active builds","all")}${k(probs,"With a problem","prob",probs?"bad":"")}${k(stale,`Idle ${IDLE_DAYS}+ days`,"idle",stale?"warn":"")}${k(done,"Complete","done")}</div>
+  <div class="label">Where every house is</div>
+  <div class="pipe">${PHASES.map((p,i)=>`<button data-act="filter" data-v="p${i}" aria-pressed="${ui.filter==="p"+i}"><span class="n">${counts[i]}</span><span class="t">${i+1}. ${esc(p)}</span><span class="bar"><i style="width:${counts[i]/max*100}%"></i></span></button>`).join("")}</div>
+  <div class="tools"><input class="search" id="q" type="search" placeholder="Search lot, address, permit, super" value="${esc(ui.q)}">
+  <select class="sel" id="sort" aria-label="Sort"><option value="attn">Needs attention</option><option value="progress">Furthest along</option><option value="behind">Least along</option><option value="name">Name</option></select>
+  <button class="btn" data-act="bulk">Bulk add</button></div>
+  <div id="list"></div>`;
+}
+function renderList(){
+  const el=$("#list"); if(!el)return; $("#sort").value=ui.sort;
+  const q=ui.q.trim().toLowerCase();
+  let rows=houses.map(h=>({h,c:calc(h)}));
+  const f=ui.filter;
+  if(f==="prob")rows=rows.filter(r=>r.c.probs.length);
+  else if(f==="idle")rows=rows.filter(r=>r.c.stale);
+  else if(f==="done")rows=rows.filter(r=>!r.c.next);
+  else if(f==="all")rows=rows.filter(r=>r.c.next);
+  else if(f&&f[0]==="p")rows=rows.filter(r=>r.c.phase===+f.slice(1));
+  if(q)rows=rows.filter(({h})=>[h.name,h.addr,h.model,h.permit,h.sup,h.buyer].join(" ").toLowerCase().includes(q));
+  const sorts={attn:(a,b)=>(b.c.probs.length>0)-(a.c.probs.length>0)||(b.c.idle??-1)-(a.c.idle??-1),progress:(a,b)=>b.c.pct-a.c.pct,behind:(a,b)=>a.c.pct-b.c.pct,name:(a,b)=>String(a.h.name).localeCompare(b.h.name,undefined,{numeric:true})};
+  rows.sort(sorts[ui.sort]||sorts.attn);
+  const fl=f?`<div class="hint" style="margin-bottom:8px">Showing ${rows.length} · <button class="back" style="display:inline" data-act="filter" data-v="${esc(f)}">Clear filter</button></div>`:"";
+  if(!rows.length){el.innerHTML=fl+`<div class="empty"><p>No houses match.</p></div>`;return}
+  el.innerHTML=fl+`<div class="list">${rows.map(({h,c})=>{
+    const ns=c.next, nst=ns?stOf(h,ns):"", nsub=ns?so(h,ns).sub:"";
+    const nx=ns?`<span class="type">${TYPES[ns.t]}</span> ${codeHtml(ns)} ${esc(ns.name)}${nst!=="todo"?` <span class="chip ${chipCls(nst)}">${ST[nst]}</span>`:""}${nsub?` <span class="chip sub">${esc(subName(nsub))}</span>`:""}`:`<span class="chip ok">Complete</span>`;
+    return `<button class="row" data-act="open" data-id="${h.id}"><span class="name">${esc(h.name)}</span><span class="pct">${c.pct}%</span>
+      <span class="prog"><i style="width:${c.pct}%"></i></span>
+      <span class="next">${nx}</span>
+      <span class="meta"><span class="chip phase">${ns?(c.phase+1)+". "+esc(PHASES[c.phase]):"Closed out"}</span>${esc(h.model||"")}${h.sup?" · "+esc(h.sup):""}
+      ${c.probs.length?`<span class="chip bad">${c.probs.length} problem${c.probs.length>1?"s":""}</span>`:""}
+      ${c.stale?`<span class="chip warn">Idle ${c.idle}d</span>`:""}</span></button>`}).join("")}</div>`;
+}
+function chipCls(st){return {sched:"sched",prog:"warn",done:"ok",prob:"bad"}[st]||"plain"}
+
+function nextHtml(){
+  const probs=[],insp=[],work=[],orders=[],sched=[];
+  for(const h of houses){const c=calc(h); if(!c.next)continue;
+    c.probs.forEach(s=>probs.push({h,s}));
+    c.sched.forEach(s=>sched.push({h,s,d:so(h,s).d}));
+    const st=stOf(h,c.next);
+    if(st==="todo"||st==="prog"){ if(c.next.t==="I")insp.push({h,s:c.next}); else if(c.next.t!=="O")work.push({h,s:c.next}); }
+    let seen=0; for(const s of c.app){ if(stOf(h,s)==="done")continue; if(++seen>6)break; if(s.t==="O"&&stOf(h,s)==="todo")orders.push({h,s,far:seen-1}); }
+  }
+  sched.sort((a,b)=>String(a.d||"9").localeCompare(String(b.d||"9")));
+  orders.sort((a,b)=>a.far-b.far);
+  const row=({h,s,d,far},acts)=>{const sb=so(h,s).sub;return `<div class="qrow"><button class="h" data-act="step" data-id="${h.id}" data-s="${s.id}">${esc(h.name)}</button>
+    <div class="s">${codeHtml(s)} ${esc(s.name)}${d?` · <span class="num">${esc(fmtD(d))}</span>`:""}${far?` · in ${far} step${far>1?"s":""}`:""}${sb?` · ${esc(subName(sb))}`:""}</div>
+    <div class="acts">${acts}</div></div>`};
+  const qa=(h,s,v,t)=>`<button class="btn small" data-act="quick" data-id="${h.id}" data-s="${s.id}" data-v="${v}">${t}</button>`;
+  const sec=(title,sub,items,fn)=>items.length?`<div class="section"><h2>${title} <span class="mono muted" style="font-size:14px">${items.length}</span></h2><p>${sub}</p></div><div class="list">${items.map(fn).join("")}</div>`:"";
+  const out=
+    sec("Problems","Fix these first",probs,x=>row(x,qa(x.h,x.s,"done","Resolved")))+
+    sec("Inspections to call","Next step is an inspection",insp,x=>row(x,qa(x.h,x.s,"sched","Called")+qa(x.h,x.s,"done","Passed")))+
+    sec("Orders to place","Coming up within 6 steps",orders,x=>row(x,qa(x.h,x.s,"done","Ordered")))+
+    sec("Scheduled","Waiting on a date",sched,x=>row(x,qa(x.h,x.s,"done","Done")))+
+    sec("Work to schedule","Next step on each house",work,x=>row(x,qa(x.h,x.s,"sched","Schedule")+qa(x.h,x.s,"done","Done")));
+  return out||`<div class="empty"><h3>Nothing waiting</h3><p>Every active house is clear.</p></div>`;
+}
+
+function mapUrl(a){return "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(a)}
+function detailHtml(h){
+  const c=calc(h), plan=planFor(h);
+  const fact=(l,v,cls)=>`<div class="fact ${cls||""}"><small>${l}</small><div>${v||"—"}</div></div>`;
+  const ns=c.next;
+  return `<div class="dhead"><button class="back" data-act="close">‹ All houses</button>
+  <div class="dtitle"><h2>${esc(h.name)}</h2><button class="btn small" data-act="edit" data-id="${h.id}">Edit</button></div>
+  <div class="facts">
+    ${fact("Address",h.addr?`<a href="${esc(mapUrl(h.addr))}" target="_blank" rel="noopener">${esc(h.addr)}</a>`:"","wide")}
+    ${fact("House plan",plan?`<a href="${esc(plan)}" target="_blank" rel="noopener">Open plan${h.plan?"":" ("+esc(h.model)+")"}</a>`:`<span class="muted">Not added</span>`,"wide")}
+    ${fact("Model",esc(h.model))}${fact("Permit #",esc(h.permit))}${fact("Super",esc(h.sup))}${fact("Started",h.start?esc(fmtD(h.start)):"")}</div>
+  <div class="prog" style="height:6px"><i style="width:${c.pct}%"></i></div>
+  <div class="hint num">${c.done} of ${c.total} steps done · ${c.pct}%${c.idle!==null?` · last update ${c.idle===0?"today":c.idle+"d ago"}`:""}</div>
+  ${ns?`<div class="nextcard"><div><span class="type">Next · ${TYPES[ns.t]}</span><b>${esc(label(ns))}</b></div><button class="btn primary small" data-act="step" data-id="${h.id}" data-s="${ns.id}">Assign &amp; send</button></div>`:`<div class="nextcard"><b>Every step is done.</b></div>`}
+  ${h.notes?`<div class="hint" style="white-space:pre-wrap">${esc(h.notes)}</div>`:""}
+  </div>
+  ${PHASES.map((p,i)=>{const ss=c.app.filter(s=>s.p===i);const dn=ss.filter(s=>stOf(h,s)==="done").length;const hasProb=ss.some(s=>stOf(h,s)==="prob");
+    return `<details class="ph" ${i===c.phase||hasProb?"open":""}><summary><span class="pn">${i+1}. ${esc(p)}</span>${hasProb?`<span class="chip bad">Problem</span>`:""}<span class="pc">${dn}/${ss.length}</span></summary>
+    ${ss.map(s=>{const o=so(h,s);const st=o.st||"todo";
+      return `<div class="step ${st==="done"?"done":""} ${ns&&ns.id===s.id?"isnext":""}">
+      <button class="dot ${st}" data-act="toggle" data-id="${h.id}" data-s="${s.id}" aria-label="${st==="done"?"Mark not done":"Mark done"}: ${esc(s.name)}">${st==="done"?`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 8.5l3.2 3L13 4.5"/></svg>`:st==="prob"?`<svg viewBox="0 0 16 16" fill="currentColor"><rect x="7" y="3" width="2" height="7"/><rect x="7" y="11.5" width="2" height="2"/></svg>`:""}</button>
+      <button class="sn" data-act="step" data-id="${h.id}" data-s="${s.id}"><span><span class="stx">${esc(s.name)}</span>${codeHtml(s)}${st!=="todo"&&st!=="done"?`<span class="chip ${chipCls(st)}">${ST[st]}</span>`:""}${o.sub?`<span class="chip sub">${esc(subName(o.sub))}${o.brief?" · sent":""}</span>`:""}</span>${o.n?`<span class="nt">${esc(o.n)}</span>`:""}</button>
+      <span class="sd num">${o.d?esc(fmtD(o.d)):`<span class="type">${TYPES[s.t]}</span>`}</span></div>`}).join("")}</details>`}).join("")}`;
+}
+
+/* ---------- subs tab ---------- */
+function openJobs(subId){const out=[];for(const h of houses)for(const s of stepsFor(h)){const o=so(h,s);if(o.sub===subId&&o.st!=="done")out.push({h,s,o})}return out}
+function subsHtml(){
+  const used=[...new Set(subs.flatMap(x=>x.trades||[]))];
+  return `<div class="tools" style="margin-top:6px"><input class="search" id="sq" type="search" placeholder="Search name, company, phone" value="${esc(ui.sq)}">
+  <select class="sel" id="strade" aria-label="Trade"><option value="">All trades</option>${Object.entries(TRADES).map(([k,v])=>`<option value="${k}" ${ui.strade===k?"selected":""}>${esc(v)}${used.includes(k)?"":" (none)"}</option>`).join("")}</select></div>
+  <div id="sublist"></div>`;
+}
+function renderSubList(){
+  const el=$("#sublist"); if(!el)return;
+  if(!subs.length){el.innerHTML=`<div class="empty"><h3>No subs yet</h3><p>Add each subcontractor once with their trades, phone and email. When you assign them to a step, the board writes the job brief for WhatsApp or email.</p><button class="btn primary" data-act="addsub">Add a sub</button></div>`;return}
+  const q=ui.sq.trim().toLowerCase();
+  let rows=subs.slice();
+  if(ui.strade)rows=rows.filter(x=>(x.trades||[]).includes(ui.strade));
+  if(q)rows=rows.filter(x=>[x.name,x.company,x.phone,x.email].join(" ").toLowerCase().includes(q));
+  rows.sort((a,b)=>String(a.company||a.name).localeCompare(b.company||b.name));
+  if(!rows.length){el.innerHTML=`<div class="empty"><p>No subs match.</p></div>`;return}
+  el.innerHTML=`<div class="list">${rows.map(x=>{const j=openJobs(x.id).length;
+    return `<button class="row" data-act="opensub" data-id="${x.id}"><span class="name">${esc(x.company||x.name)}${x.company&&x.name?` <span class="muted" style="font-weight:400">· ${esc(x.name)}</span>`:""}</span><span class="chip ${j?"phase":"plain"}">${j} open</span>
+    <span class="meta">${(x.trades||[]).map(t=>`<span class="chip plain">${esc(TRADES[t]||t)}</span>`).join("")}${x.phone?`<span class="num">${esc(x.phone)}</span>`:""}</span></button>`}).join("")}</div>`;
+}
+
+/* ---------- sheets ---------- */
+function openSheet(html){ui.sheet=true;$("#sheetRoot").innerHTML=`<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`}
+function closeSheet(){ui.sheet=null;$("#sheetRoot").innerHTML=""}
+function segBind(el,onPick){el.onclick=e=>{const b=e.target.closest("button");if(!b)return;el.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));onPick(b.dataset.v)}}
+
+function subOptions(tr,cur){
+  const match=subs.filter(x=>tr&&(x.trades||[]).includes(tr)), other=subs.filter(x=>!match.includes(x));
+  const o=x=>`<option value="${x.id}" ${x.id===cur?"selected":""}>${esc(x.company||x.name)}${x.company&&x.name?" – "+esc(x.name):""}</option>`;
+  let html=`<option value="">No sub assigned</option>`;
+  if(match.length)html+=`<optgroup label="${esc(TRADES[tr])}">${match.map(o).join("")}</optgroup>`;
+  if(other.length)html+=`<optgroup label="${match.length?"Other subs":"All subs"}">${other.map(o).join("")}</optgroup>`;
+  if(cur&&!subById(cur))html+=`<option value="${esc(cur)}" selected>Removed sub</option>`;
+  return html+`<option value="__new">+ Add a new sub…</option>`;
+}
+
+function stepSheet(h,s,keep){
+  const o=so(h,s); let st=keep?keep.st:(o.st||"todo"); const subPre=keep?keep.sub:(o.sub||"");
+  openSheet(`<h3>${esc(s.name)}</h3><div class="sub">${esc(h.name)} · ${TYPES[s.t]}${s.code?" · code "+esc(s.code):""}${s.tr?" · "+esc(TRADES[s.tr]):""} · step ${s.n}</div>
+  <div class="field"><label for="ssub">Subcontractor</label><select id="ssub">${subOptions(s.tr,subPre)}</select>
+  ${o.brief?`<p class="hint">Brief opened in ${o.brief.ch==="wa"?"WhatsApp":"email"} on ${esc(fmtD(o.brief.d))}${o.brief.to&&o.brief.to!==o.sub?" (to a different sub)":""}</p>`:""}</div>
+  <div class="field"><span class="flabel">Status</span><div class="seg" id="seg">${Object.entries(ST).map(([k,v])=>`<button type="button" data-v="${k}" aria-pressed="${k===st}">${v}</button>`).join("")}</div></div>
+  <div class="field"><label id="dl" for="sd">Date</label><input type="date" id="sd" value="${esc(keep?keep.d:(o.d||""))}"></div>
+  <div class="field"><label for="sn">Note for this step</label><textarea id="sn" placeholder="Scope, PO #, what failed… goes into the brief">${esc(keep?keep.n:(o.n||""))}</textarea></div>
+  <p class="hint" id="by"></p>
+  <div class="actions"><button class="btn" id="sendNow" ${subPre?"":"hidden"}>Send brief</button><span class="spacer"></span><button class="btn" data-act="cancel">Cancel</button><button class="btn primary" id="saveStep">Save</button></div>`);
+  const dlab=()=>{$("#dl").textContent={sched:"Scheduled for",done:"Completed on",prob:"Found on",prog:"Started on"}[st]||"Date"};dlab();
+  segBind($("#seg"),v=>{st=v;dlab();if((st==="done"||st==="prog"||st==="prob")&&!$("#sd").value)$("#sd").value=today()});
+  const vals=()=>({st,sub:$("#ssub").value==="__new"?"":$("#ssub").value,d:$("#sd").value||"",n:$("#sn").value.trim()});
+  $("#ssub").onchange=e=>{
+    if(e.target.value==="__new"){const keepNow=vals();subSheet(null,{trade:s.tr,onSaved:id=>stepSheet(h,s,Object.assign(keepNow,{sub:id})),onCancel:()=>stepSheet(h,s,keepNow)});return}
+    $("#sendNow").hidden=!e.target.value;
+  };
+  if(o.by&&user&&user.profiles){user.profiles([o.by]).then(ps=>{const n=ps&&ps[o.by]&&ps[o.by].name;if(n&&$("#by"))$("#by").textContent="Last updated by "+n}).catch(()=>{})}
+  const save=()=>{const v=vals();const changed=v.sub&&v.sub!==(o.sub||"");closeSheet();setStep(h,s,v);return {v,changed}};
+  $("#saveStep").onclick=()=>{const {v,changed}=save();if(changed)sendSheet(h,s,v);else toast("Saved")};
+  $("#sendNow").onclick=()=>{const {v}=save();sendSheet(h,s,v)};
+}
+
+/* ---------- brief composer ---------- */
+function briefText(h,s,v,sub,lang){
+  const first=String(sub.name||sub.company||"").split(/\s+/)[0];
+  const addr=h.addr||"", plan=planFor(h);
+  const dt=v.d?new Date(v.d+"T12:00:00").toLocaleDateString(lang==="es"?"es-US":"en-US",{weekday:"long",month:"long",day:"numeric"}):"";
+  const L=lang==="es"?{hi:`Hola ${first}, le saluda Envision Homes.`,task:"Trabajo",house:"Casa",addr:"Dirección",map:"Mapa",model:"Modelo",date:"Fecha",tbd:"por confirmar",plan:"Plano",noplan:"se lo enviamos por separado",notes:"Notas",sup:"Supervisor",permit:"Permiso",end:"Por favor confirme si puede. Gracias."}
+    :{hi:`Hi ${first}, this is Envision Homes.`,task:"Task",house:"House",addr:"Address",map:"Map",model:"Model",date:"Date",tbd:"to be confirmed",plan:"House plan",noplan:"we'll send it separately",notes:"Notes",sup:"Superintendent",permit:"Permit",end:"Please confirm you can make it. Thank you."};
+  const lines=[L.hi,"",`${L.task}: ${label(s)}`,`${L.house}: ${h.name}`];
+  if(addr){lines.push(`${L.addr}: ${addr}`,`${L.map}: ${mapUrl(addr)}`)}
+  if(h.model)lines.push(`${L.model}: ${h.model}`);
+  if(h.permit)lines.push(`${L.permit}: ${h.permit}`);
+  lines.push(`${L.date}: ${dt||L.tbd}`,`${L.plan}: ${plan||L.noplan}`);
+  if(v.n)lines.push(`${L.notes}: ${v.n}`);
+  if(h.sup)lines.push(`${L.sup}: ${h.sup}`);
+  lines.push("",L.end);
+  return lines.join("\n");
+}
+function waNum(p){let d=String(p||"").replace(/\D/g,"");if(d.length===10)d="1"+d;return d}
+function sendSheet(h,s,v){
+  const sub=subById(v.sub); if(!sub){toast("Saved");return}
+  let ch=sub.channel||"wa", lang=sub.lang||"en";
+  openSheet(`<h3>Send brief</h3><div class="sub">To ${esc(sub.company||sub.name)}${sub.company&&sub.name?" · "+esc(sub.name):""} · ${esc(s.name)}</div>
+  <div class="grid2"><div class="field"><span class="flabel">Send by</span><div class="seg two" id="chSeg"><button type="button" data-v="wa" aria-pressed="${ch==="wa"}">WhatsApp</button><button type="button" data-v="email" aria-pressed="${ch==="email"}">Email</button></div></div>
+  <div class="field"><span class="flabel">Language</span><div class="seg two" id="lgSeg"><button type="button" data-v="en" aria-pressed="${lang==="en"}">English</button><button type="button" data-v="es" aria-pressed="${lang==="es"}">Español</button></div></div></div>
+  <div class="field" id="subjWrap"><label for="bsubj">Subject</label><input id="bsubj"></div>
+  <div class="field"><label for="bmsg">Message</label><textarea class="msg" id="bmsg"></textarea></div>
+  <p class="hint warn" id="bwarn"></p>
+  <div class="actions" id="bgo"></div>
+  <div class="actions"><button class="btn" id="bcopy">Copy message</button><span class="spacer"></span><button class="btn" data-act="cancel">Done</button></div>`);
+  const fill=()=>{$("#bmsg").value=briefText(h,s,v,sub,lang);$("#bsubj").value=`${label(s)} – ${h.addr||h.name}`;links()};
+  const links=()=>{
+    $("#subjWrap").hidden=ch!=="email";
+    const msg=$("#bmsg").value, subj=$("#bsubj").value, w=[];
+    if(!h.addr)w.push("No street address on this house.");
+    if(!planFor(h))w.push("No plan link on this house or its model.");
+    let html="";
+    if(ch==="wa"){const n=waNum(sub.phone);
+      if(!n)w.push("This sub has no phone number. Add one in Subs.");
+      html=`<a class="btn wa" data-act="sent" data-ch="wa" ${n?"":`aria-disabled="true"`} href="https://wa.me/${n}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Open in WhatsApp</a>`;
+    }else{const to=(sub.email||"").trim(),e=encodeURIComponent;
+      if(!to)w.push("This sub has no email. Add one in Subs.");
+      const dis=to?"":`aria-disabled="true"`;
+      html=`<a class="btn primary" data-act="sent" data-ch="email" ${dis} href="https://mail.google.com/mail/?view=cm&fs=1&to=${e(to)}&su=${e(subj)}&body=${e(msg)}" target="_blank" rel="noopener">Gmail</a>
+      <a class="btn" data-act="sent" data-ch="email" ${dis} href="https://outlook.office.com/mail/deeplink/compose?to=${e(to)}&subject=${e(subj)}&body=${e(msg)}" target="_blank" rel="noopener">Outlook</a>
+      <a class="btn" data-act="sent" data-ch="email" ${dis} href="mailto:${e(to)}?subject=${e(subj)}&body=${e(msg)}">Mail app</a>`;
+    }
+    $("#bgo").innerHTML=html; $("#bwarn").textContent=w.join(" ");
+  };
+  segBind($("#chSeg"),x=>{ch=x;links()});
+  segBind($("#lgSeg"),x=>{lang=x;fill()});
+  $("#bmsg").oninput=links; $("#bsubj").oninput=links;
+  $("#bcopy").onclick=()=>copy($("#bmsg").value);
+  $("#bgo").addEventListener("click",e=>{const a=e.target.closest("[data-act=sent]");if(!a)return;
+    setStep(houses.find(x=>x.id===h.id)||h,s,{brief:{ch:a.dataset.ch,d:today(),to:sub.id}});
+    setTimeout(()=>toast("Logged the brief on this step"),300)});
+  fill();
+}
+
+/* ---------- sub editor ---------- */
+function subSheet(x,opts){
+  opts=opts||{}; const isNew=!x; x=x||{trades:opts.trade?[opts.trade]:[],channel:"wa",lang:"es"};
+  const jobs=isNew?[]:openJobs(x.id);
+  const n=waNum(x.phone);
+  openSheet(`<h3>${isNew?"Add sub":esc(x.company||x.name)}</h3>
+  ${isNew?"":`<div class="contact"><div><small>Phone / WhatsApp</small><div class="v">${esc(x.phone||"—")}</div></div><div class="acts">${x.phone?`<button class="btn small" data-copy="${esc(x.phone)}">Copy</button><a class="btn small" href="tel:${esc(String(x.phone).replace(/[^\d+]/g,""))}">Call</a>${n?`<a class="btn small wa" href="https://wa.me/${n}" target="_blank" rel="noopener">WhatsApp</a>`:""}`:""}</div></div>
+  <div class="contact"><div><small>Email</small><div class="v">${esc(x.email||"—")}</div></div><div class="acts">${x.email?`<button class="btn small" data-copy="${esc(x.email)}">Copy</button>`:""}</div></div>
+  ${jobs.length?`<div class="field"><span class="flabel">Open jobs (${jobs.length})</span><div class="list">${jobs.map(j=>`<div class="qrow"><button class="h" data-act="step" data-id="${j.h.id}" data-s="${j.s.id}">${esc(j.h.name)}</button><div class="s">${esc(j.s.name)}${j.o.d?" · "+esc(fmtD(j.o.d)):""}${j.o.st&&j.o.st!=="todo"?" · "+ST[j.o.st]:""}</div></div>`).join("")}</div></div>`:""}`}
+  <div class="grid2"><div class="field"><label for="xc">Company</label><input id="xc" value="${esc(x.company||"")}"></div>
+  <div class="field"><label for="xn">Contact name</label><input id="xn" value="${esc(x.name||"")}"></div></div>
+  <div class="grid2"><div class="field"><label for="xp">Phone (WhatsApp)</label><input id="xp" type="tel" inputmode="tel" value="${esc(x.phone||"")}" placeholder="239 555 0142"></div>
+  <div class="field"><label for="xe">Email</label><input id="xe" type="email" value="${esc(x.email||"")}"></div></div>
+  <div class="grid2"><div class="field"><label for="xch">Send briefs by</label><select id="xch"><option value="wa" ${x.channel!=="email"?"selected":""}>WhatsApp</option><option value="email" ${x.channel==="email"?"selected":""}>Email</option></select></div>
+  <div class="field"><label for="xl">Language</label><select id="xl"><option value="es" ${x.lang!=="en"?"selected":""}>Español</option><option value="en" ${x.lang==="en"?"selected":""}>English</option></select></div></div>
+  <div class="field"><span class="flabel">Trades (they show first when you assign these steps)</span><div class="checks" id="xt">${Object.entries(TRADES).map(([k,v])=>`<label><input type="checkbox" value="${k}" ${(x.trades||[]).includes(k)?"checked":""}> ${esc(v)}</label>`).join("")}</div></div>
+  <div class="field"><label for="xo">Notes</label><textarea id="xo" placeholder="License #, insurance expiry, rates…">${esc(x.notes||"")}</textarea></div>
+  <p class="hint" id="xerr" role="alert"></p>
+  <div class="actions">${isNew?"":`<button class="btn danger" id="xdel">Delete sub</button><span class="spacer"></span>`}<button class="btn" id="xcancel">Cancel</button><button class="btn primary" id="xsave">${isNew?"Add sub":"Save"}</button></div>`);
+  $("#sheetRoot").querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>copy(b.dataset.copy));
+  $("#xcancel").onclick=()=>{closeSheet();opts.onCancel&&opts.onCancel()};
+  if(!isNew){const d=$("#xdel");d.onclick=()=>{if(d.dataset.arm){closeSheet();queue(x.id,()=>subCol.doc(x.id).delete()).then(()=>toast("Sub deleted"));return}d.dataset.arm=1;d.textContent=jobs.length?`Tap again (${jobs.length} open jobs)`:"Tap again to delete"}}
+  $("#xsave").onclick=()=>{
+    const body={company:$("#xc").value.trim(),name:$("#xn").value.trim(),phone:$("#xp").value.trim(),email:$("#xe").value.trim(),channel:$("#xch").value,lang:$("#xl").value,
+      trades:[...$("#xt").querySelectorAll("input:checked")].map(i=>i.value),notes:$("#xo").value.trim()};
+    if(!body.company&&!body.name){$("#xerr").textContent="Add a company or contact name.";$("#xc").focus();return}
+    if(!body.trades.length){$("#xerr").textContent="Pick at least one trade.";return}
+    const ref=isNew?subCol.doc():subCol.doc(x.id);
+    if(isNew){subs.push(Object.assign({id:ref.id},body))}
+    closeSheet();
+    queue(ref.id,()=>isNew?ref.set(body):ref.update(body)).then(()=>toast(isNew?"Sub added":"Saved"));
+    opts.onSaved&&opts.onSaved(ref.id);
+  };
+}
+
+/* ---------- house editor ---------- */
+function houseSheet(h){
+  const isNew=!h; h=h||{};
+  const pre=STEPS.map(s=>`<option value="${s.n}">${s.n}. ${esc(label(s))}</option>`).join("");
+  openSheet(`<h3>${isNew?"Add house":"Edit house"}</h3>
+  <div class="grid2"><div class="field"><label for="hn">Lot / name</label><input id="hn" value="${esc(h.name||"")}" placeholder="Lot 14 Blk 22" autocomplete="off"></div>
+  <div class="field"><label for="ha">Street address</label><input id="ha" value="${esc(h.addr||"")}" placeholder="1234 SW 5th St, Lehigh Acres" autocomplete="off"></div></div>
+  <div class="grid2"><div class="field"><label for="hm">Model</label><select id="hm">${MODELS.map(m=>`<option ${m===h.model?"selected":""}>${m}</option>`).join("")}</select></div>
+  <div class="field"><label for="hp">Permit #</label><input id="hp" value="${esc(h.permit||"")}"></div></div>
+  <div class="field"><label for="hl">House plan link</label><input id="hl" type="url" value="${esc(h.plan||"")}" placeholder="Google Drive or Dropbox link to the plan PDF">
+  <p class="hint" id="hlh"></p>
+  <label class="inline"><input type="checkbox" id="hdef"> <span id="hdefl">Use this plan for every house of this model</span></label></div>
+  <div class="grid2"><div class="field"><label for="hs">Superintendent</label><input id="hs" value="${esc(h.sup||"")}"></div>
+  <div class="field"><label for="hd">Start date</label><input type="date" id="hd" value="${esc(h.start||(isNew?today():""))}"></div></div>
+  <div class="field"><label for="hb">Buyer</label><input id="hb" value="${esc(h.buyer||"")}" placeholder="Optional"></div>
+  ${isNew?`<div class="field"><label for="hc">Step it's on now</label><select id="hc">${pre}</select><p class="hint">Everything before this step is marked done.</p></div>`:""}
+  <div class="field"><label for="hx">Notes</label><textarea id="hx">${esc(h.notes||"")}</textarea></div>
+  <p class="hint" id="herr" role="alert"></p>
+  <div class="actions">${isNew?"":`<button class="btn danger" id="delH">Delete house</button><span class="spacer"></span>`}<button class="btn" data-act="cancel">Cancel</button><button class="btn primary" id="saveH">${isNew?"Add house":"Save"}</button></div>`);
+  const ph=()=>{const m=$("#hm").value, lib=plans[m];$("#hdefl").textContent=`Use this plan for every ${m} house`;
+    $("#hlh").textContent=lib?`Leave blank to use the ${m} plan already saved. Set "anyone with the link can view" so subs can open it.`:`Set the link to "anyone with the link can view" so subs can open it.`};
+  ph(); $("#hm").onchange=ph;
+  if(!isNew){const d=$("#delH");d.onclick=()=>{if(d.dataset.arm){closeSheet();ui.open=null;queue(h.id,()=>col.doc(h.id).delete()).then(()=>toast("House deleted"));render();return}d.dataset.arm=1;d.textContent="Tap again to delete"}}
+  $("#saveH").onclick=()=>{
+    const name=$("#hn").value.trim()||$("#ha").value.trim(); if(!name){$("#herr").textContent="Add a lot number or address.";$("#hn").focus();return}
+    const plan=$("#hl").value.trim();
+    if(plan&&!/^https?:\/\//i.test(plan)){$("#herr").textContent="The plan link needs to start with https://";$("#hl").focus();return}
+    const base={name,addr:$("#ha").value.trim(),model:$("#hm").value,permit:$("#hp").value.trim(),plan,sup:$("#hs").value.trim(),start:$("#hd").value,buyer:$("#hb").value.trim(),notes:$("#hx").value.trim()};
+    // Read every form value before closeSheet() removes the form from the page.
+    const at=isNew?(+$("#hc").value||1):0;
+    if($("#hdef").checked&&plan){queue("config-plans",()=>plansRef.set(Object.assign({},plans,{[base.model]:plan})))}
+    closeSheet();
+    if(isNew){createHouse(base,at).then(()=>toast("House added"))}
+    else{queue(h.id,()=>col.doc(h.id).update(base)).then(()=>toast("Saved"))}
+  };
+}
+function createHouse(base,at){
+  const d=base.start||today(), steps={};
+  STEPS.forEach(s=>{if(s.n<at&&(!s.dx||base.model==="Duplex"))steps[s.id]={st:"done",d}});
+  const ref=col.doc();
+  return queue(ref.id,()=>ref.set(Object.assign({},base,{steps,last:today(),created:today(),...(myId?{by:myId}:{})})));
+}
+function bulkSheet(){
+  openSheet(`<h3>Add many houses</h3><div class="sub">One house per line: lot | street address, model, step number it's on now.</div>
+  <div class="field"><label for="bt">Houses</label><textarea id="bt" style="min-height:180px" placeholder="Lot 14 Blk 22 | 1234 SW 5th St, Perry, 31&#10;Lot 3 Blk 8 | 410 Gunnery Rd, Duplex, 47&#10;Lot 9 Blk 2, Ember, 8"></textarea></div>
+  <p class="hint">Models: ${MODELS.join(", ")}. Step numbers follow the build sequence (1 = Land purchase, 31 = Block, 67 = Drywall, 109 = Sold). Leave the number off to start at step 1. Plans come from the saved plan for each model.</p>
+  <p class="hint" id="bp"></p>
+  <div class="actions"><button class="btn" data-act="cancel">Cancel</button><button class="btn primary" id="bgo" disabled>Add houses</button></div>`);
+  const parse=()=>$("#bt").value.split(/\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const parts=l.split(",").map(x=>x.trim()).filter(Boolean); let at=1, model="Other";
+    if(parts.length>1&&/^\d+$/.test(parts[parts.length-1])){at=Math.min(109,Math.max(1,+parts.pop()))}
+    if(parts.length>1){const m=MODELS.find(x=>x.toLowerCase()===parts[parts.length-1].toLowerCase());if(m){model=m;parts.pop()}}
+    const [nm,ad]=parts.join(", ").split("|").map(x=>x.trim());
+    return {name:nm||ad,addr:ad||"",model,at}}).filter(x=>x.name);
+  $("#bt").oninput=()=>{const r=parse();$("#bp").textContent=r.length?`${r.length} house${r.length>1?"s":""} ready: `+r.slice(0,3).map(x=>`${x.name} (${x.model}, step ${x.at})`).join("; ")+(r.length>3?"…":""):"";$("#bgo").disabled=!r.length;$("#bgo").textContent=r.length?`Add ${r.length} house${r.length>1?"s":""}`:"Add houses"};
+  $("#bgo").onclick=async()=>{const r=parse();closeSheet();for(const x of r){await createHouse({name:x.name,addr:x.addr,model:x.model,permit:"",plan:"",sup:"",start:today(),buyer:"",notes:""},x.at)}toast(`Added ${r.length} houses`)};
+}
+
+/* ---------- export ---------- */
+async function exportCsv(){
+  if(!dl)return;
+  const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const head=["House","Address","Model","Permit","Plan","Super","Buyer","Start","Phase","Next step","% done","Days since update","Problems",...STEPS.map(s=>s.n+". "+label(s))];
+  const lines=[head.map(q).join(",")];
+  for(const h of houses){const c=calc(h);
+    lines.push([h.name,h.addr,h.model,h.permit,planFor(h),h.sup,h.buyer,h.start,c.next?PHASES[c.phase]:"Complete",c.next?label(c.next):"",c.pct,c.idle??"",c.probs.map(label).join("; "),
+      ...STEPS.map(s=>{if(s.dx&&h.model!=="Duplex")return"n/a";const o=so(h,s);return [o.st&&o.st!=="todo"?ST[o.st]+(o.d?" "+o.d:""):"",o.sub?subName(o.sub):""].filter(Boolean).join(" · ")})].map(q).join(","))}
+  try{const r=await dl.save({filename:`build-board-${today()}.csv`,data:lines.join("\n")});if(r&&r.status==="saved")toast("Exported")}catch(e){if(e&&e.code!=="cancelled"&&e.code!=="declined")toast("Export didn't go through")}
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-act]"); if(!t)return; const a=t.dataset.act;
+  if(a==="scrim"){if(e.target===t)closeSheet();return}
+  if(a==="sent")return; // handled inside the send sheet
+  const h=t.dataset.id?houses.find(x=>x.id===t.dataset.id):null; const s=t.dataset.s?STEPS.find(x=>x.id===t.dataset.s):null;
+  switch(a){
+    case"tab":ui.tab=t.dataset.v;ui.open=null;render();scrollTo(0,0);break;
+    case"filter":ui.filter=ui.filter===t.dataset.v?null:t.dataset.v;ui.tab="board";render();break;
+    case"open":ui.open=h.id;render();scrollTo(0,0);break;
+    case"close":ui.open=null;render();break;
+    case"add":houseSheet(null);break;
+    case"addsub":subSheet(null);break;
+    case"opensub":subSheet(subById(t.dataset.id));break;
+    case"bulk":bulkSheet();break;
+    case"edit":houseSheet(h);break;
+    case"cancel":closeSheet();break;
+    case"step":if(h&&s)stepSheet(h,s);break;
+    case"toggle":{const st=stOf(h,s);setStep(h,s,st==="done"?{st:"todo",d:""}:{st:"done",d:today()});break}
+    case"quick":{const v=t.dataset.v;setStep(h,s,{st:v,d:v==="sched"?(so(h,s).d||""):today()}).then(()=>toast(`${s.name}: ${ST[v]}`));if(v==="sched")stepSheet(h,s,{st:"sched",sub:so(h,s).sub||"",d:so(h,s).d||"",n:so(h,s).n||""});break}
+    case"export":exportCsv();break;
+  }
+});
+document.addEventListener("input",e=>{if(e.target.id==="q"){ui.q=e.target.value;renderList()}if(e.target.id==="sq"){ui.sq=e.target.value;renderSubList()}});
+document.addEventListener("change",e=>{if(e.target.id==="sort"){ui.sort=e.target.value;renderList()}if(e.target.id==="strade"){ui.strade=e.target.value;renderSubList()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&ui.sheet)closeSheet()});
+
+/* ---------- boot ---------- */
+render();
+(async()=>{
+  const [d,u,dd]=await Promise.all([window.claude.use("db"),window.claude.use("user"),window.claude.use("downloads")]);
+  db=d;user=u;dl=dd; $("#exportBtn").hidden=!dl;
+  if(!db){loadErr="Sign in to claude.ai to open the build board.";render();return}
+  try{myId=user?await user.id():null}catch(_){}
+  col=db.collection("houses"); subCol=db.collection("subs"); plansRef=db.doc("config/plans");
+  const fail=err=>{loadErr=err&&err.code==="permission_denied"?"You don't have access to this board. Ask Carlos to share it with you.":"Lost the connection to the board. Reload to try again.";render()};
+  col.onSnapshot(snap=>{houses=snap.docs.filter(x=>x.exists).map(x=>Object.assign({id:x.id},x.data()));loaded=true;render()},fail);
+  subCol.onSnapshot(snap=>{subs=snap.docs.filter(x=>x.exists).map(x=>Object.assign({id:x.id},x.data()));if(loaded)render()},fail);
+  plansRef.onSnapshot(snap=>{plans=(snap.exists&&snap.data())||{};if(loaded)render()},()=>{});
+})();
+</script>
+
+</body>
+</html>

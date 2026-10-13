@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Import Build Board Data</title>
+<style>
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#ECEFEE;color:#192125}
+  main{max-width:640px;margin:0 auto;padding:24px 16px}
+  h1{font-size:22px;margin:0 0 8px}
+  .card{background:#fff;border:1px solid #D3D9DA;border-radius:12px;padding:16px;margin-top:16px}
+  button{padding:10px 16px;border-radius:9px;border:0;background:#1D5FA8;color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.5}
+  pre{background:#F5F7F6;border-radius:8px;padding:10px;white-space:pre-wrap;font-size:13px}
+</style>
+<script src="firebase-config.js"></script>
+<script src="claude-shim.js"></script>
+</head>
+<body>
+<main>
+  <h1>Import Build Board data</h1>
+  <p>Copies <code>data/houses.json</code>, <code>data/subs.json</code> and <code>data/config.json</code> into your Firebase database. Records already in Firebase are skipped, never overwritten, so running this twice is safe.</p>
+  <div class="card">
+    <p id="mode"></p>
+    <button id="go" disabled>Import data</button>
+    <pre id="log">Preparing…</pre>
+  </div>
+</main>
+<script>
+const log = (t) => { document.getElementById("log").textContent += "\n" + t; };
+(async () => {
+  document.getElementById("mode").textContent = window.claude.mode === "firebase"
+    ? "Target: Firebase project “" + window.FIREBASE_CONFIG.projectId + "”."
+    : "firebase-config.js is empty, so this would only import into this browser. Add your Firebase config first.";
+  const files = {};
+  for (const c of ["houses", "subs", "config"]) {
+    try { const r = await fetch("data/" + c + ".json", { cache: "no-store" }); files[c] = r.ok ? await r.json() : {}; }
+    catch (_) { files[c] = {}; }
+  }
+  document.getElementById("log").textContent = "Found " + Object.keys(files.houses).length + " houses, " + Object.keys(files.subs).length + " subs, " + Object.keys(files.config).length + " settings docs.";
+  if (window.claude.mode !== "firebase") return;
+  const db = await window.claude.use("db");
+  if (!db) { log("Could not connect to Firebase. Check firebase-config.js and that you are signed in."); return; }
+  const btn = document.getElementById("go"); btn.disabled = false;
+  btn.onclick = async () => {
+    btn.disabled = true; let added = 0, skipped = 0, failed = 0;
+    for (const [c, docs] of Object.entries(files)) {
+      for (const [id, data] of Object.entries(docs)) {
+        try {
+          const ref = db.collection(c).doc(id);
+          if ((await ref.get()).exists) { skipped++; continue; }
+          await ref.set(data); added++; log("Added " + c + "/" + id);
+        } catch (e) { failed++; log("Failed " + c + "/" + id + ": " + (e.code || e.message)); }
+      }
+    }
+    log(`\nDone. Added ${added}, skipped ${skipped} already there, ${failed} failed.`);
+    if (!failed) log("Open index.html to see your board.");
+  };
+})();
+</script>
+</body>
+</html>

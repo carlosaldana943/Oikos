@@ -1,0 +1,18 @@
+rules_version = '2';
+// Paste into Firebase console → Firestore Database → Rules → Publish.
+// Only the Google accounts listed here can open or change the board.
+// Add Julio and each superintendent's email before sharing the link.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isTeam() {
+      return request.auth != null && request.auth.token.email in [
+        'carlosaldana@envision-project.com'
+        // , 'julio@example.com'
+      ];
+    }
+    match /{collection}/{docId} {
+      allow read, write: if isTeam()
+        && collection in ['houses', 'subs', 'config', 'users'];
+    }
+  }
+}
